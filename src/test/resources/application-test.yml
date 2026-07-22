@@ -1,0 +1,10 @@
+spring:
+  flyway:
+    enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+monitoring:
+  simulation:
+    enabled: false

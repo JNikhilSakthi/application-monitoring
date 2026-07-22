@@ -1,0 +1,64 @@
+spring:
+  application:
+    name: springboot-monitoring-demo
+
+  datasource:
+    url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:monitoring_demo}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    username: ${DB_USERNAME:monitoring_user}
+    password: ${DB_PASSWORD:monitoring_pass}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      pool-name: monitoring-hikari-pool
+      maximum-pool-size: 10
+      register-mbeans: true
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, prometheus, metrics
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+        order.processing.time.seconds: true
+      slo:
+        http.server.requests: 50ms,100ms,200ms,500ms,1s
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+monitoring:
+  simulation:
+    enabled: ${SIMULATION_ENABLED:true}
+    create-interval-ms: 1500
+    progress-interval-ms: 2500
+
+logging:
+  level:
+    root: INFO
+    com.medha.applicationmonitoring: INFO
