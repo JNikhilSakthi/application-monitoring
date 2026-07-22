@@ -12,9 +12,9 @@
     </parent>
 
     <groupId>com.medha</groupId>
-    <artifactId>springboot-monitoring-demo</artifactId>
+    <artifactId>application-monitoring</artifactId>
     <version>1.0.0</version>
-    <name>springboot-monitoring-demo</name>
+    <name>application-monitoring</name>
     <description>Application Monitoring Dashboard - Prometheus + Grafana demo</description>
 
     <properties>
@@ -104,7 +104,7 @@
     </dependencyManagement>
 
     <build>
-        <finalName>springboot-monitoring-demo</finalName>
+        <finalName>application-monitoring</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

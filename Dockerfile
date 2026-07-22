@@ -15,7 +15,7 @@ WORKDIR /app
 RUN addgroup --system spring && adduser --system --ingroup spring spring
 USER spring:spring
 
-COPY --from=build /workspace/target/springboot-monitoring-demo.jar app.jar
+COPY --from=build /workspace/target/application-monitoring.jar app.jar
 
 EXPOSE 8080
 
