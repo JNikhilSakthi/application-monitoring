@@ -48,7 +48,7 @@ Every production Spring Boot service eventually gets asked the same three questi
                                          │ HTTP (REST JSON)
                                          ▼
 ┌───────────────────────────────────────────────────────────────────────┐
-│                    springboot-monitoring-demo (app)                    │
+│                    application-monitoring (app)                        │
 │                                                                         │
 │   OrderController → OrderService → OrderRepository → MySQL (orders)   │
 │         │                  │                                          │
@@ -121,7 +121,7 @@ or if multiple instances shared the same database.
 ### Folder structure
 
 ```
-springboot-monitoring-demo/
+application-monitoring/
 ├── pom.xml
 ├── Dockerfile
 ├── docker-compose.yml
@@ -302,7 +302,7 @@ Custom, app-specific properties (not a Spring namespace) consumed by `TrafficSim
 
 | Path | Purpose |
 |---|---|
-| `pom.xml` | Maven build: Spring Boot 4.0.6 parent, Java 25, Web/JPA/Validation/Actuator/AspectJ starters, `micrometer-registry-prometheus`, MySQL driver, `spring-boot-starter-flyway` (+ `flyway-mysql` dialect), Lombok 1.18.44 (with explicit `annotationProcessorPaths`), and test deps (JUnit/Mockito/`spring-boot-starter-webmvc-test`/Testcontainers). Fixed `finalName` (`springboot-monitoring-demo.jar`) so the Dockerfile's `COPY` path is stable across versions. |
+| `pom.xml` | Maven build: Spring Boot 4.0.6 parent, Java 25, Web/JPA/Validation/Actuator/AspectJ starters, `micrometer-registry-prometheus`, MySQL driver, `spring-boot-starter-flyway` (+ `flyway-mysql` dialect), Lombok 1.18.44 (with explicit `annotationProcessorPaths`), and test deps (JUnit/Mockito/`spring-boot-starter-webmvc-test`/Testcontainers). Fixed `finalName` (`application-monitoring.jar`) so the Dockerfile's `COPY` path is stable across versions. |
 | `Dockerfile` | Multi-stage build: stage 1 builds the jar inside `maven:3.9-eclipse-temurin-25`; stage 2 copies only the jar into a slim `eclipse-temurin:25-jre-jammy` runtime image, running as a non-root `spring` user. |
 | `docker-compose.yml` | Orchestrates 4 services: `mysql`, `app`, `prometheus`, `grafana` on a shared bridge network with named volumes for persistence. |
 | `.dockerignore` / `.gitignore` | Keep `target/`, IDE files, and the Maven wrapper jar out of the Docker build context and git history. |
@@ -484,7 +484,7 @@ mvn test
 
 **`Dockerfile`** — two stages:
 1. **Build stage** (`maven:3.9-eclipse-temurin-25`): copies `pom.xml` first and runs `dependency:go-offline` to cache dependencies in a separate layer, then copies `src/` and runs `clean package -DskipTests` (tests are run separately in CI, not at image-build time).
-2. **Runtime stage** (`eclipse-temurin:25-jre-jammy`): copies only the built jar (`springboot-monitoring-demo.jar`) into a minimal JRE image, creates and switches to a non-root `spring` user, exposes port `8080`.
+2. **Runtime stage** (`eclipse-temurin:25-jre-jammy`): copies only the built jar (`application-monitoring.jar`) into a minimal JRE image, creates and switches to a non-root `spring` user, exposes port `8080`.
 
 **`docker-compose.yml`** — four services on one bridge network (`monitoring-net`):
 - **`mysql`** (8.0.36) — seeded via env vars, healthchecked with `mysqladmin ping`, data persisted in the `mysql-data` volume; `app` waits on `service_healthy` before starting.
