@@ -1,0 +1,127 @@
+{
+  "id": null,
+  "uid": "app-monitoring-dashboard",
+  "title": "Application Monitoring Dashboard",
+  "description": "Orders API throughput, errors, latency and JVM health - backed by Micrometer metrics scraped from /actuator/prometheus.",
+  "tags": ["spring-boot", "micrometer", "prometheus"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Orders Created (rate/min)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus_ds" },
+      "targets": [
+        { "expr": "rate(orders_created_total[1m]) * 60", "legendFormat": "created/min", "refId": "A" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Orders Failed vs Cancelled (rate/min)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus_ds" },
+      "targets": [
+        { "expr": "rate(orders_failed_total[1m]) * 60", "legendFormat": "failed/min", "refId": "A" },
+        { "expr": "rate(orders_cancelled_total[1m]) * 60", "legendFormat": "cancelled/min", "refId": "B" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Active Orders",
+      "type": "gauge",
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus_ds" },
+      "targets": [
+        { "expr": "orders_active", "legendFormat": "active", "refId": "A" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 50,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 20 },
+              { "color": "red", "value": 35 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "HTTP Request Rate by Status",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus_ds" },
+      "targets": [
+        { "expr": "sum(rate(http_server_requests_seconds_count[1m])) by (status)", "legendFormat": "{{status}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "HTTP Request Latency p95",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus_ds" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket[5m])) by (le, uri))", "legendFormat": "{{uri}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Order Processing Time p50/p95/p99",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus_ds" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(order_processing_time_seconds_bucket[5m])) by (le))", "legendFormat": "p50", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum(rate(order_processing_time_seconds_bucket[5m])) by (le))", "legendFormat": "p95", "refId": "B" },
+        { "expr": "histogram_quantile(0.99, sum(rate(order_processing_time_seconds_bucket[5m])) by (le))", "legendFormat": "p99", "refId": "C" }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Order Value Distribution (avg)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus_ds" },
+      "targets": [
+        { "expr": "rate(order_value_amount_sum[5m]) / rate(order_value_amount_count[5m])", "legendFormat": "avg order value", "refId": "A" }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "JVM Heap Memory Used",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus_ds" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum(jvm_memory_used_bytes{area=\"heap\"}) by (id)", "legendFormat": "{{id}}", "refId": "A" }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Process CPU Usage",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus_ds" },
+      "fieldConfig": { "defaults": { "unit": "percentunit", "min": 0, "max": 1 }, "overrides": [] },
+      "targets": [
+        { "expr": "process_cpu_usage", "legendFormat": "process cpu", "refId": "A" },
+        { "expr": "system_cpu_usage", "legendFormat": "system cpu", "refId": "B" }
+      ]
+    }
+  ]
+}
