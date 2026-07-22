@@ -73,7 +73,7 @@ class OrderServiceTest {
         assertThat(response.totalAmount()).isEqualByComparingTo("20");
         assertThat(response.status()).isEqualTo(OrderStatus.PENDING);
 
-        assertThat(meterRegistry.get("orders_created_total").counter().count()).isEqualTo(1.0);
+        assertThat(meterRegistry.get("orders_creation_total").counter().count()).isEqualTo(1.0);
         assertThat(meterRegistry.get("order_value_amount").summary().count()).isEqualTo(1);
     }
 

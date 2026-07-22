@@ -17,7 +17,7 @@
       "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus_ds" },
       "targets": [
-        { "expr": "rate(orders_created_total[1m]) * 60", "legendFormat": "created/min", "refId": "A" }
+        { "expr": "rate(orders_creation_total[1m]) * 60", "legendFormat": "created/min", "refId": "A" }
       ]
     },
     {
@@ -97,7 +97,7 @@
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
       "datasource": { "type": "prometheus", "uid": "prometheus_ds" },
       "targets": [
-        { "expr": "rate(order_value_amount_sum[5m]) / rate(order_value_amount_count[5m])", "legendFormat": "avg order value", "refId": "A" }
+        { "expr": "rate(order_value_amount_currency_sum[5m]) / rate(order_value_amount_currency_count[5m])", "legendFormat": "avg order value", "refId": "A" }
       ]
     },
     {

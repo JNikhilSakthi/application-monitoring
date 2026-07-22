@@ -1,10 +1,10 @@
 package com.medha.applicationmonitoring;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import com.medha.applicationmonitoring.dto.OrderRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -67,7 +67,7 @@ class OrderApiIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(content -> {
                     String body = content.getResponse().getContentAsString();
-                    org.assertj.core.api.Assertions.assertThat(body).contains("orders_created_total");
+                    org.assertj.core.api.Assertions.assertThat(body).contains("orders_creation_total");
                 });
     }
 

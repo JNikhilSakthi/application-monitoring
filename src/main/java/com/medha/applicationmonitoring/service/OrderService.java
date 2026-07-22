@@ -30,9 +30,9 @@ import java.util.Set;
  * event is observable in Prometheus/Grafana:
  *
  * <ul>
- *   <li>{@code orders_created_total} - counter, tagged by outcome (created/failed)</li>
+ *   <li>{@code orders_creation_total} - counter, tagged by outcome (created/failed)</li>
  *   <li>{@code orders_active} - gauge, current count of orders not yet in a terminal state</li>
- *   <li>{@code order_value_amount} - distribution summary of order monetary value</li>
+ *   <li>{@code order_value_amount_currency} - distribution summary of order monetary value</li>
  *   <li>{@code order_processing_time_seconds} - timer around the simulated processing step</li>
  *   <li>{@code order_service_*_seconds} - method-level timers via {@code @Timed}</li>
  * </ul>
@@ -54,7 +54,13 @@ public class OrderService {
         this.orderRepository = orderRepository;
         this.meterRegistry = meterRegistry;
 
-        this.ordersCreatedCounter = Counter.builder("orders_created_total")
+        // Named "orders_creation_total" rather than "orders_created_total": Micrometer 1.16 /
+        // Prometheus Java client 1.x (bundled with Spring Boot 4) treats a literal "_created"
+        // token in a counter name as the reserved OpenMetrics "created-timestamp" suffix and
+        // strips it (together with anything after the following underscore up to "_total"),
+        // which silently renamed this meter to "orders_total" on scrape. Verified by scraping
+        // /actuator/prometheus locally before and after this rename.
+        this.ordersCreatedCounter = Counter.builder("orders_creation_total")
                 .description("Total number of orders successfully created")
                 .register(meterRegistry);
 
