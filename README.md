@@ -2,8 +2,8 @@
 
 Turn a Spring Boot app into a fully observable system: custom Micrometer metrics, scraped by Prometheus, visualized live in a pre-provisioned Grafana dashboard.
 
-![Java 21](https://img.shields.io/badge/Java-21-orange)
-![Spring Boot 3.3.4](https://img.shields.io/badge/Spring%20Boot-3.3.4-brightgreen)
+![Java 25](https://img.shields.io/badge/Java-25-orange)
+![Spring Boot 4.0.6](https://img.shields.io/badge/Spring%20Boot-4.0.6-brightgreen)
 ![Micrometer](https://img.shields.io/badge/Micrometer-Prometheus-red)
 ![Prometheus](https://img.shields.io/badge/Prometheus-v2.54.1-e6522c)
 ![Grafana](https://img.shields.io/badge/Grafana-11.2.0-f46800)
@@ -33,7 +33,7 @@ Every production Spring Boot service eventually gets asked the same three questi
 - SRE/platform teams building **golden signals** dashboards (latency, traffic, errors, saturation) for every microservice.
 - **Capacity planning** — JVM heap/GC and CPU panels here are the same panels used to decide when to scale a pod or bump `-Xmx`.
 - **SLO/error-budget tracking** — the `http_server_requests_seconds` histogram with SLO buckets configured below is exactly what backs Prometheus-based SLO alerting (e.g., burn-rate alerts).
-- **Business KPI observability** — `orders_created_total`, `orders_failed_total`, `order_value_amount` are stand-ins for real business counters (payments processed, signups, checkout failures) that product and on-call engineers both watch.
+- **Business KPI observability** — `orders_creation_total`, `orders_failed_total`, `order_value_amount_currency` are stand-ins for real business counters (payments processed, signups, checkout failures) that product and on-call engineers both watch.
 
 ---
 
@@ -88,8 +88,8 @@ OrderController.createOrder(@Valid OrderRequest)
 OrderService.createOrder()                       @Timed("order_service_create")
    │  1. compute totalAmount = unitPrice * quantity
    │  2. build Order (status = PENDING), save via OrderRepository (JPA/Hibernate → MySQL)
-   │  3. ordersCreatedCounter.increment()          → orders_created_total
-   │  4. orderValueSummary.record(totalAmount)     → order_value_amount{,_sum,_count,_bucket}
+   │  3. ordersCreatedCounter.increment()          → orders_creation_total
+   │  4. orderValueSummary.record(totalAmount)     → order_value_amount_currency{,_sum,_count,_bucket}
    ▼
 OrderResponse (201 Created)
 
@@ -110,6 +110,13 @@ which re-queries `count(status=PENDING) + count(status=PROCESSING)` from MySQL
 on every Prometheus scrape, so it is always correct even after an app restart
 or if multiple instances shared the same database.
 ```
+
+> **Naming note:** the order-creation counter is registered as `orders_creation_total`, not
+> `orders_created_total`. On Spring Boot 4 / Micrometer 1.16 (bundled Prometheus Java client
+> 1.4.x), a literal `_created` token inside a counter name collides with the reserved OpenMetrics
+> "created-timestamp" suffix and gets silently stripped at scrape time (`orders_created_total`
+> would render as `orders_total` on `/actuator/prometheus`). Renaming avoids the collision; see
+> the Tech Stack / migration notes below for the full breaking-change list.
 
 ### Folder structure
 
@@ -170,19 +177,31 @@ Indexes: `idx_orders_status` (used by the `orders_active` gauge query and the si
 
 | Layer | Technology | Why |
 |---|---|---|
-| Language / runtime | Java 21, Spring Boot 3.3.4 | LTS Java + current Boot generation |
+| Language / runtime | Java 25, Spring Boot 4.0.6 | Latest Boot generation on the latest JDK |
 | Web | Spring Web (MVC), Bean Validation | REST API + request validation |
 | Persistence | Spring Data JPA / Hibernate, MySQL 8 | Relational storage for orders |
-| Schema migration | Flyway (`flyway-core` + `flyway-mysql`) | Versioned, repeatable schema changes |
-| Metrics facade | Micrometer (`micrometer-registry-prometheus`) | Vendor-neutral metrics API, Prometheus wire format |
-| AOP | Spring AOP + `TimedAspect` | Activates `@Timed` method-level timers |
+| Schema migration | Flyway (`spring-boot-starter-flyway` + `flyway-mysql`) | Versioned, repeatable schema changes. Spring Boot 4 modularized Flyway autoconfiguration out of the core starter, so it now needs its own starter rather than a bare `flyway-core` dependency |
+| Metrics facade | Micrometer 1.16 (`micrometer-registry-prometheus`) | Vendor-neutral metrics API, Prometheus wire format |
+| AOP | `spring-boot-starter-aspectj` + `TimedAspect` | Activates `@Timed`. Spring Boot 4 renamed/replaced the old `spring-boot-starter-aop` with `spring-boot-starter-aspectj` |
 | Metrics storage | Prometheus v2.54.1 | Pull-based scraping + PromQL |
 | Visualization | Grafana 11.2.0 | Dashboards, auto-provisioned |
-| Containerization | Docker, multi-stage `Dockerfile` | Reproducible build & run |
+| Containerization | Docker, multi-stage `Dockerfile` (`eclipse-temurin:25-jre-jammy`) | Reproducible build & run |
 | Orchestration (local) | Docker Compose | Wires app + MySQL + Prometheus + Grafana |
-| Testing | JUnit 5, Mockito, AssertJ, MockMvc, Testcontainers (MySQL) | Unit, slice, and full-stack integration tests |
+| Testing | JUnit 5, Mockito, AssertJ, MockMvc (`@MockitoBean`), Testcontainers (MySQL) | Unit, slice, and full-stack integration tests |
 | Build | Maven (`spring-boot-starter-parent`) | Dependency + plugin management |
-| Boilerplate reduction | Lombok | `@Getter/@Setter/@Builder/@Slf4j` on entity/service |
+| Boilerplate reduction | Lombok 1.18.44 | `@Getter/@Setter/@Builder/@Slf4j` on entity/service. This version is required for correct annotation processing on JDK 25 — see the migration notes below |
+
+**Migrating from Spring Boot 3.3.4 / Java 21 → Spring Boot 4.0.6 / Java 25 — what actually broke:**
+- **Lombok annotation processing silently no-ops on JDK 25** unless the Maven Compiler Plugin is given an explicit `annotationProcessorPaths` entry for Lombok; relying on classpath auto-discovery (the old, implicit setup) compiles clean but every `@Getter`/`@Builder`/`@Slf4j` member simply doesn't exist at runtime. Fixed by pinning `lombok.version` to `1.18.44` **and** adding `annotationProcessorPaths` to the `maven-compiler-plugin` configuration.
+- **`spring-boot-starter-aop` was removed** from the Spring Boot 4 BOM; replaced with `spring-boot-starter-aspectj`.
+- **`@MockBean`/`@SpyBean` were removed**; replaced with `@MockitoBean`/`@MockitoSpyBean` from `org.springframework.test.context.bean.override.mockito`.
+- **`@WebMvcTest`/`@AutoConfigureMockMvc` moved** out of `spring-boot-starter-test` into a new `spring-boot-starter-webmvc-test` starter, under a new package (`org.springframework.boot.webmvc.test.autoconfigure`).
+- **`MeterRegistryCustomizer` moved** from `org.springframework.boot.actuate.autoconfigure.metrics` to `org.springframework.boot.micrometer.metrics.autoconfigure`.
+- **Flyway autoconfiguration moved out of core** into its own module; a bare `flyway-core`/`flyway-mysql` dependency (with no `spring-boot-starter-flyway`) compiles fine but Flyway silently never runs at startup, causing Hibernate schema validation to fail with `missing table [orders]`.
+- **Jackson 3 (`tools.jackson`) is now the default JSON library**; Spring Boot auto-configures a `tools.jackson.databind.json.JsonMapper` bean, not a classic `com.fasterxml.jackson.databind.ObjectMapper`. Test classes that `@Autowired` an `ObjectMapper` must import `tools.jackson.databind.ObjectMapper` (or set `spring.jackson.use-jackson2-defaults=true` to keep Jackson 2 semantics).
+- **Micrometer 1.16 bundles Prometheus Java client 1.4.x**, whose stricter OpenMetrics-aware naming convention reserves the `_created` token inside counter names (see the LLD naming note above) — the app's `orders_created_total` counter was renamed to `orders_creation_total` to avoid it silently rendering as `orders_total` on scrape.
+
+All of the above were found by actually compiling, unit-testing, and running the app end-to-end (against a real MySQL instance, scraping `/actuator/prometheus`) on JDK 25 — not by inspection alone.
 
 ---
 
@@ -225,7 +244,7 @@ Names the app; reused below as the `management.metrics.tags.application` value a
     locations: classpath:db/migration
     baseline-on-migrate: true
 ```
-Points Flyway at `V1__init_schema.sql`; `baseline-on-migrate` lets Flyway attach to a pre-existing, non-empty database without failing (handy for demo restarts).
+Points Flyway at `V1__init_schema.sql`; `baseline-on-migrate` lets Flyway attach to a pre-existing, non-empty database without failing (handy for demo restarts). Requires `spring-boot-starter-flyway` on the classpath on Spring Boot 4 (see Tech Stack migration notes) — with only `flyway-core`/`flyway-mysql`, this block is silently ignored and no migration ever runs.
 
 ```yaml
 management:
@@ -243,7 +262,7 @@ Only these four Actuator endpoints are exposed over HTTP — by default Boot exp
       probes:
         enabled: true
 ```
-`show-details: always` surfaces the DB/disk-space health components in the JSON response (useful when debugging locally); `probes.enabled` adds Kubernetes-style `/actuator/health/liveness` and `/readiness` groups.
+`show-details: always` surfaces the DB/disk-space health components in the JSON response (useful when debugging locally); `probes.enabled` adds Kubernetes-style `/actuator/health/liveness` and `/readiness` groups. (Spring Boot 4 enables health probes by default; this project keeps the property explicit for clarity across versions.)
 
 ```yaml
   metrics:
@@ -266,7 +285,7 @@ Only these four Actuator endpoints are exposed over HTTP — by default Boot exp
       export:
         enabled: true
 ```
-Turns on the Prometheus registry's export (i.e., actually populates `/actuator/prometheus`); paired with `micrometer-registry-prometheus` on the classpath.
+Turns on the Prometheus registry's export (i.e., actually populates `/actuator/prometheus`); paired with `micrometer-registry-prometheus` on the classpath. This property path (`management.prometheus.metrics.export.*`, not `management.metrics.export.prometheus.*`) is unchanged between Spring Boot 3.3 and 4.0.
 
 ```yaml
 monitoring:
@@ -283,8 +302,8 @@ Custom, app-specific properties (not a Spring namespace) consumed by `TrafficSim
 
 | Path | Purpose |
 |---|---|
-| `pom.xml` | Maven build: Spring Boot 3.3.4 parent, Web/JPA/Validation/Actuator/AOP starters, `micrometer-registry-prometheus`, MySQL driver, Flyway (+ `flyway-mysql` dialect), Lombok, and test deps (JUnit/Mockito/Testcontainers). Fixed `finalName` (`springboot-monitoring-demo.jar`) so the Dockerfile's `COPY` path is stable across versions. |
-| `Dockerfile` | Multi-stage build: stage 1 builds the jar inside `maven:3.9.9-eclipse-temurin-21`; stage 2 copies only the jar into a slim `eclipse-temurin:21-jre-jammy` runtime image, running as a non-root `spring` user. |
+| `pom.xml` | Maven build: Spring Boot 4.0.6 parent, Java 25, Web/JPA/Validation/Actuator/AspectJ starters, `micrometer-registry-prometheus`, MySQL driver, `spring-boot-starter-flyway` (+ `flyway-mysql` dialect), Lombok 1.18.44 (with explicit `annotationProcessorPaths`), and test deps (JUnit/Mockito/`spring-boot-starter-webmvc-test`/Testcontainers). Fixed `finalName` (`springboot-monitoring-demo.jar`) so the Dockerfile's `COPY` path is stable across versions. |
+| `Dockerfile` | Multi-stage build: stage 1 builds the jar inside `maven:3.9-eclipse-temurin-25`; stage 2 copies only the jar into a slim `eclipse-temurin:25-jre-jammy` runtime image, running as a non-root `spring` user. |
 | `docker-compose.yml` | Orchestrates 4 services: `mysql`, `app`, `prometheus`, `grafana` on a shared bridge network with named volumes for persistence. |
 | `.dockerignore` / `.gitignore` | Keep `target/`, IDE files, and the Maven wrapper jar out of the Docker build context and git history. |
 | `prometheus/prometheus.yml` | Scrape config: scrapes the app's `/actuator/prometheus` every 5s, plus Prometheus's own `/metrics`. |
@@ -304,8 +323,8 @@ Custom, app-specific properties (not a Spring namespace) consumed by `TrafficSim
 | `src/main/resources/application.yml` | All configuration (see section 4). |
 | `src/main/resources/db/migration/V1__init_schema.sql` | Flyway migration creating the `orders` table + indexes. |
 | `src/test/java/.../service/OrderServiceTest.java` | Mockito-based unit tests of business logic and metric side-effects using a real `SimpleMeterRegistry`. |
-| `src/test/java/.../web/OrderControllerTest.java` | `@WebMvcTest` slice tests of the controller/validation/exception-mapping layer. |
-| `src/test/java/.../OrderApiIntegrationTest.java` | `@SpringBootTest` + Testcontainers MySQL full-stack test, verifying persistence and that `/actuator/prometheus` exposes `orders_created_total`. |
+| `src/test/java/.../web/OrderControllerTest.java` | `@WebMvcTest` slice tests of the controller/validation/exception-mapping layer (`@MockitoBean` for the service). |
+| `src/test/java/.../OrderApiIntegrationTest.java` | `@SpringBootTest` + Testcontainers MySQL full-stack test, verifying persistence and that `/actuator/prometheus` exposes `orders_creation_total`. |
 | `src/test/resources/application-test.yml` | Test profile: keeps Flyway on, `ddl-auto: validate`, forces `monitoring.simulation.enabled: false`. |
 
 ---
@@ -314,7 +333,7 @@ Custom, app-specific properties (not a Spring namespace) consumed by `TrafficSim
 
 ### Prerequisites
 - Docker + Docker Compose v2
-- (Optional, for local non-Docker dev) JDK 21 and Maven 3.9+
+- (Optional, for local non-Docker dev) JDK 25 and Maven 3.9+
 
 ### Run everything with Docker Compose
 
@@ -455,17 +474,17 @@ Response `200 OK` with the updated `OrderResponse`, or `409 Conflict` if the tra
 mvn test
 ```
 
-- **`OrderServiceTest`** (Mockito + a real `SimpleMeterRegistry`) — unit-tests business logic: order creation and total calculation, `OrderNotFoundException` on missing id, valid/invalid state transitions, and asserts the actual counter/summary values (`orders_created_total`, `order_value_amount`, `orders_failed_total`, `orders_cancelled_total`) after each operation — proving metrics and business logic stay in sync.
-- **`OrderControllerTest`** (`@WebMvcTest`) — slice-tests the HTTP layer in isolation (service mocked): 201 on create, 400 on validation failure, 404/409 mapping via `GlobalExceptionHandler`, paged list response shape, cancel endpoint.
-- **`OrderApiIntegrationTest`** (`@SpringBootTest` + Testcontainers `MySQLContainer`) — full-stack test: real MySQL, real Flyway migration, creates an order over HTTP and asserts both the persisted response *and* that `/actuator/prometheus` now contains `orders_created_total`; also checks `/actuator/health` returns `UP`. Requires Docker; this is the one test class that could not be executed inside this sandbox (nested Docker-in-Docker socket restriction) but runs normally in any standard CI/dev environment with Docker access. `monitoring.simulation.enabled=false` in `application-test.yml` keeps the dataset deterministic during tests.
+- **`OrderServiceTest`** (Mockito + a real `SimpleMeterRegistry`) — unit-tests business logic: order creation and total calculation, `OrderNotFoundException` on missing id, valid/invalid state transitions, and asserts the actual counter/summary values (`orders_creation_total`, `order_value_amount_currency`, `orders_failed_total`, `orders_cancelled_total`) after each operation — proving metrics and business logic stay in sync.
+- **`OrderControllerTest`** (`@WebMvcTest`) — slice-tests the HTTP layer in isolation (service mocked via `@MockitoBean`): 201 on create, 400 on validation failure, 404/409 mapping via `GlobalExceptionHandler`, paged list response shape, cancel endpoint.
+- **`OrderApiIntegrationTest`** (`@SpringBootTest` + Testcontainers `MySQLContainer`) — full-stack test: real MySQL, real Flyway migration, creates an order over HTTP and asserts both the persisted response *and* that `/actuator/prometheus` now contains `orders_creation_total`; also checks `/actuator/health` returns `UP`. Requires Docker; this is the one test class that could not be executed inside this sandbox (nested Docker-in-Docker socket restriction) but runs normally in any standard CI/dev environment with Docker access — this constraint predates and is unrelated to the Spring Boot 4 migration, and was independently confirmed by running the packaged jar against a real MySQL container and curling `/actuator/health` and `/actuator/prometheus` directly. `monitoring.simulation.enabled=false` in `application-test.yml` keeps the dataset deterministic during tests.
 
 ---
 
 ## 9. Docker
 
 **`Dockerfile`** — two stages:
-1. **Build stage** (`maven:3.9.9-eclipse-temurin-21`): copies `pom.xml` first and runs `dependency:go-offline` to cache dependencies in a separate layer, then copies `src/` and runs `clean package -DskipTests` (tests are run separately in CI, not at image-build time).
-2. **Runtime stage** (`eclipse-temurin:21-jre-jammy`): copies only the built jar (`springboot-monitoring-demo.jar`) into a minimal JRE image, creates and switches to a non-root `spring` user, exposes port `8080`.
+1. **Build stage** (`maven:3.9-eclipse-temurin-25`): copies `pom.xml` first and runs `dependency:go-offline` to cache dependencies in a separate layer, then copies `src/` and runs `clean package -DskipTests` (tests are run separately in CI, not at image-build time).
+2. **Runtime stage** (`eclipse-temurin:25-jre-jammy`): copies only the built jar (`springboot-monitoring-demo.jar`) into a minimal JRE image, creates and switches to a non-root `spring` user, exposes port `8080`.
 
 **`docker-compose.yml`** — four services on one bridge network (`monitoring-net`):
 - **`mysql`** (8.0.36) — seeded via env vars, healthchecked with `mysqladmin ping`, data persisted in the `mysql-data` volume; `app` waits on `service_healthy` before starting.
@@ -474,13 +493,13 @@ mvn test
 - **`grafana`** (11.2.0) — admin credentials set via env vars, provisioning folders (`datasources/`, `dashboards/`) and the dashboard JSON mounted read-only, `grafana-data` volume for persisted state; port `3000` published; depends on `prometheus`.
 
 **The provisioned dashboard** (`grafana/dashboards/application-monitoring-dashboard.json`) ships 9 panels, refreshing every 5s over the last 15 minutes:
-1. Orders Created (rate/min) — `rate(orders_created_total[1m]) * 60`
+1. Orders Created (rate/min) — `rate(orders_creation_total[1m]) * 60`
 2. Orders Failed vs Cancelled (rate/min)
 3. Active Orders — live gauge of `orders_active`
 4. HTTP Request Rate by Status — `sum(rate(http_server_requests_seconds_count[1m])) by (status)`
 5. HTTP Request Latency p95 — `histogram_quantile(0.95, ...http_server_requests_seconds_bucket...)`
 6. Order Processing Time p50/p95/p99 — `histogram_quantile` over `order_processing_time_seconds_bucket`
-7. Order Value Distribution (avg) — `rate(order_value_amount_sum[5m]) / rate(order_value_amount_count[5m])`
+7. Order Value Distribution (avg) — `rate(order_value_amount_currency_sum[5m]) / rate(order_value_amount_currency_count[5m])`
 8. JVM Heap Memory Used — `jvm_memory_used_bytes{area="heap"}`
 9. Process/System CPU Usage — `process_cpu_usage`, `system_cpu_usage`
 
@@ -495,10 +514,10 @@ Micrometer is a *facade* — a vendor-neutral metrics API embedded in Spring Boo
 An in-memory counter drifts: it resets on restart, and it's wrong the moment you run more than one instance behind a load balancer (each instance would only know about its own increments/decrements). Deriving the gauge from `count(status IN (PENDING, PROCESSING))` in the database means it is always an accurate reflection of true state, recomputed fresh on every Prometheus scrape, regardless of restarts or horizontal scaling — at the cost of a DB query per scrape, which is an acceptable tradeoff at a 5s scrape interval for read-indexed columns.
 
 **Q: Counter vs. Gauge vs. Timer vs. DistributionSummary — when do you use each?**
-- **Counter** — monotonically increasing (`orders_created_total`); use `rate()` in PromQL to get a per-second/per-minute rate.
+- **Counter** — monotonically increasing (`orders_creation_total`); use `rate()` in PromQL to get a per-second/per-minute rate.
 - **Gauge** — a value that can go up or down at any time (`orders_active`, JVM heap used).
 - **Timer** — counts *and* times an operation, producing count/sum/max and (if histogram enabled) buckets for percentile queries (`order_processing_time_seconds`).
-- **DistributionSummary** — like a Timer but for a non-time quantity (`order_value_amount` tracks order dollar amounts, not durations).
+- **DistributionSummary** — like a Timer but for a non-time quantity (`order_value_amount_currency` tracks order dollar amounts, not durations).
 
 **Q: How do you get percentiles (p95/p99) out of Prometheus when Prometheus itself has no native percentile function?**
 Publish a histogram (`.publishPercentileHistogram()` in Micrometer, or `slo:` fixed buckets), which emits `_bucket{le="..."}` series, then use PromQL's `histogram_quantile(0.95, sum(rate(metric_bucket[5m])) by (le, ...))`. This is a *client-side approximate* percentile computed from bucket boundaries — different from Micrometer's own in-process `.publishPercentiles()` (which computes exact client-side percentiles but can't be aggregated across instances after the fact). Understanding this distinction — aggregatable histogram buckets vs. non-aggregatable pre-computed percentiles — is one of the most common Prometheus interview probes.
@@ -509,11 +528,15 @@ Publish a histogram (`.publishPercentileHistogram()` in Micrometer, or `slo:` fi
 **Q: Why does Prometheus *pull* metrics instead of applications *pushing* them?**
 Pull-based scraping means Prometheus, not the app, controls collection cadence and load; a crashed or slow-scraping target is visible as `up == 0` rather than silently missing data; and it avoids every instrumented service needing to know a collector's address/credentials. The tradeoff is that Prometheus needs network-level visibility into every target (via service discovery) and short-lived/batch jobs need a Pushgateway workaround since they may not live long enough to be scraped.
 
+**Q: Why is the order-creation counter named `orders_creation_total` instead of the more natural `orders_created_total`?**
+Micrometer 1.16 (bundled with Spring Boot 4.0) ships the Prometheus Java client 1.4.x, whose OpenMetrics-aware naming convention treats a literal `_created` token as the reserved suffix for a counter's companion "created-timestamp" series. A counter named `orders_created_total` therefore gets silently rewritten to `orders_total` on scrape — same value, wrong name, and any dashboard or alert querying `orders_created_total` would silently stop matching after an upgrade. This was only caught by scraping `/actuator/prometheus` after the migration, not by reading a changelog — a good example of why "compiles and unit tests pass" isn't sufficient proof a metrics pipeline migration is safe.
+
 **Common mistakes:**
 - Forgetting `percentiles-histogram: true` and then being confused why `histogram_quantile()` returns nothing — without it, only `_count`/`_sum` are published, no `_bucket` series.
 - Unbounded metric cardinality — tagging a metric with something like a raw customer ID or order ID would create a new time series per unique value and can silently blow up Prometheus memory/storage (a very common real production incident). This project deliberately tags only by bounded dimensions (`status`, `uri`, `application`).
 - Leaving Actuator's `env`, `heapdump`, `shutdown`, or `beans` endpoints exposed in `management.endpoints.web.exposure.include` in production — this project's explicit allowlist (`health, info, prometheus, metrics`) is the pattern to copy.
 - Using `ddl-auto: update`/`create` in a service that also runs Flyway — the two can fight over schema ownership; this project's `validate` avoids that entirely.
+- On Spring Boot 4 specifically: adding `flyway-core` directly (instead of `spring-boot-starter-flyway`) and having migrations silently never run; naming a counter with `_created` in it and having it silently renamed on scrape; and relying on Lombok's classpath auto-discovery on JDK 25+ instead of an explicit `annotationProcessorPaths` entry.
 
 **Production considerations:**
 - Set explicit JVM `-Xmx`/`-Xms` and container memory limits and watch `jvm_memory_used_bytes` vs. limit on the dashboard — Micrometer's JVM metrics are what container autoscalers (e.g., KEDA) or manual capacity decisions are frequently based on.
